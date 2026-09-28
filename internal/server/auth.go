@@ -52,6 +52,10 @@ func (s *Server) authenticate(w http.ResponseWriter, r *http.Request, registrati
 		return nil, nil, false
 	}
 	id := protocol.DeviceID(pub)
+	if s.console.disabled(id) {
+		fail(w, 403, "device disabled by coordinator")
+		return nil, nil, false
+	}
 	if !registration {
 		d, ok := s.store.Get(id)
 		if !ok || d.Disabled || d.PublicKey != protocol.PublicString(pub) {

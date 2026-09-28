@@ -13,8 +13,6 @@ import (
 	"remotedesk.local/remotedesk/internal/identity"
 	"remotedesk.local/remotedesk/internal/protocol"
 	"remotedesk.local/remotedesk/internal/update"
-	"runtime"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -85,6 +83,7 @@ type catalog struct {
 type loginSession struct {
 	User    string
 	Expires time.Time
+	CSRF    string
 }
 
 func newCatalog(b StateBackend) (*catalog, error) {
@@ -118,7 +117,9 @@ func (c *catalog) tx(actor, action, object string, fn func(*catalogData) error) 
 	defer c.mu.Unlock()
 	old, _ := json.Marshal(c.data)
 	if e := fn(&c.data); e != nil {
-		_ = json.Unmarshal(old, &c.data)
+		var restored catalogData
+		_ = json.Unmarshal(old, &restored)
+		c.data = restored
 		return e
 	}
 	c.data.Audit = append(c.data.Audit, Audit{time.Now().Unix(), actor, action, object})
@@ -130,7 +131,9 @@ func (c *catalog) tx(actor, action, object string, fn func(*catalogData) error) 
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if e := c.backend.Save(ctx, b); e != nil {
-			_ = json.Unmarshal(old, &c.data)
+			var restored catalogData
+			_ = json.Unmarshal(old, &restored)
+			c.data = restored
 			return e
 		}
 	}
@@ -175,7 +178,7 @@ func (s *Server) adminIdentity(r *http.Request) (string, string) {
 	if r.Header.Get("Authorization") != "" {
 		return s.tokenUser(bearer(r))
 	}
-	cookie, e := r.Cookie("rd_admin")
+	cookie, e := r.Cookie(adminCookie)
 	if e != nil {
 		return "", ""
 	}
@@ -189,13 +192,6 @@ func (s *Server) adminIdentity(r *http.Request) (string, string) {
 	s.mu.Unlock()
 	return ss.User, s.userRole(ss.User)
 }
-func sameOrigin(r *http.Request) bool {
-	if origin := r.Header.Get("Origin"); origin != "" {
-		u, e := url.Parse(origin)
-		return e == nil && u.Scheme == "https" && u.Host == r.Host
-	}
-	return r.Header.Get("Authorization") != ""
-}
 func readAdmin(w http.ResponseWriter, r *http.Request, v any) bool {
 	b, e := io.ReadAll(http.MaxBytesReader(w, r.Body, 128<<10))
 	if e != nil || decode(b, v) != nil {
@@ -205,42 +201,13 @@ func readAdmin(w http.ResponseWriter, r *http.Request, v any) bool {
 	return true
 }
 func (s *Server) manage(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "GET" && r.Method != "POST" && r.Method != "DELETE" {
+	if r.Method != "GET" && r.Method != "POST" && r.Method != "DELETE" && r.Method != "PUT" && r.Method != "PATCH" {
 		fail(w, 405, "method not allowed")
 		return
 	}
-	if r.Method != "GET" && !sameOrigin(r) {
-		fail(w, 403, "same-origin management request required")
-		return
-	}
-	if r.URL.Path == "/v1/admin/login" && r.Method == "POST" {
-		var q struct {
-			Token string `json:"token"`
-		}
-		if !readAdmin(w, r, &q) {
-			return
-		}
-		actor, role := s.tokenUser(q.Token)
-		if actor == "" {
-			fail(w, 401, "invalid login token")
-			return
-		}
-		token := protocol.RandomHex(32)
-		s.mu.Lock()
-		for k, v := range s.loginSessions {
-			if time.Now().After(v.Expires) {
-				delete(s.loginSessions, k)
-			}
-		}
-		if len(s.loginSessions) >= 1024 {
-			s.mu.Unlock()
-			fail(w, 429, "login session limit")
-			return
-		}
-		s.loginSessions[secretHash(token)] = loginSession{actor, time.Now().Add(8 * time.Hour)}
-		s.mu.Unlock()
-		http.SetCookie(w, &http.Cookie{Name: "rd_admin", Value: token, Path: "/v1/admin/", HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode, MaxAge: 8 * 3600})
-		jsonResponse(w, 200, map[string]string{"user": actor, "role": role})
+
+	if r.URL.Path == "/v1/admin/login" {
+		s.login(w, r)
 		return
 	}
 	actor, role := s.adminIdentity(r)
@@ -248,13 +215,28 @@ func (s *Server) manage(w http.ResponseWriter, r *http.Request) {
 		fail(w, 401, "administrator authorization required")
 		return
 	}
+	csrf := ""
+	if r.Header.Get("Authorization") == "" {
+		c, _ := r.Cookie(adminCookie)
+		s.mu.Lock()
+		session := s.loginSessions[secretHash(c.Value)]
+		csrf = session.CSRF
+		s.mu.Unlock()
+		if r.Method != "GET" && (!sameOrigin(r) || !sameSecret(r.Header.Get("X-RD-CSRF"), csrf)) {
+			fail(w, 403, "CSRF validation failed")
+			return
+		}
+	} else if r.Method != "GET" && !sameOrigin(r) {
+		fail(w, 403, "cross-origin request rejected")
+		return
+	}
 	if r.URL.Path == "/v1/admin/logout" && r.Method == "POST" {
-		if c, e := r.Cookie("rd_admin"); e == nil {
+		if c, e := r.Cookie(adminCookie); e == nil {
 			s.mu.Lock()
 			delete(s.loginSessions, secretHash(c.Value))
 			s.mu.Unlock()
 		}
-		http.SetCookie(w, &http.Cookie{Name: "rd_admin", Path: "/v1/admin/", HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode, MaxAge: -1})
+		http.SetCookie(w, &http.Cookie{Name: adminCookie, Path: "/", HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode, MaxAge: -1})
 		jsonResponse(w, 200, map[string]bool{"ok": true})
 		return
 	}
@@ -269,12 +251,16 @@ func (s *Server) manage(w http.ResponseWriter, r *http.Request) {
 			jsonResponse(w, 200, map[string]bool{"ok": true})
 		}
 	}
+	if consolePath(r.URL.Path) {
+		s.consoleAPI(w, r, actor)
+		return
+	}
 	switch r.URL.Path {
 	case "/v1/admin/me":
 		if r.Method != "GET" {
 			break
 		}
-		jsonResponse(w, 200, map[string]string{"user": actor, "role": role})
+		jsonResponse(w, 200, map[string]string{"user": actor, "username": actor, "role": role, "csrf": csrf})
 		return
 	case "/v1/admin/overview", "/v1/admin/devices":
 		if r.Method != "GET" {
@@ -293,20 +279,7 @@ func (s *Server) manage(w http.ResponseWriter, r *http.Request) {
 			jsonResponse(w, 200, peers)
 			return
 		}
-		s.mu.Lock()
-		ss := []protocol.SessionStatus{}
-		for _, v := range s.sessions {
-			ss = append(ss, v.status)
-		}
-		s.mu.Unlock()
-		sort.Slice(ss, func(i, j int) bool { return ss[i].ID < ss[j].ID })
-		var mem runtime.MemStats
-		runtime.ReadMemStats(&mem)
-		backend := "json / process memory"
-		if s.presence != nil {
-			backend = "external registry / Redis presence; single signal process"
-		}
-		jsonResponse(w, 200, map[string]any{"devices": peers, "online": online, "sessions": ss, "version": "0.2.0-engineering", "backend": backend, "memory_bytes": mem.Alloc, "goroutines": runtime.NumGoroutine(), "limitations": []string{"Windows GPU performance requires hardware acceptance", "No multi-node signal routing"}})
+		s.overview(w, r)
 		return
 	case "/v1/admin/device":
 		if r.Method != "POST" {

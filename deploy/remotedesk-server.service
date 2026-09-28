@@ -1,0 +1,23 @@
+[Unit]
+Description=RemoteDesk Server (API, Signal, Relay and Vue Admin)
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=simple
+User=remotedesk
+Group=remotedesk
+WorkingDirectory=/var/lib/remotedesk/server
+ExecStart=/opt/remotedesk/server/bin/remote-server run --config /var/lib/remotedesk/server/server.json
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/remotedesk/server
+LimitNOFILE=65536
+StandardOutput=journal
+StandardError=journal
+[Install]
+WantedBy=multi-user.target

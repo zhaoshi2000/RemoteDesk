@@ -12,9 +12,11 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"remotedesk.local/remotedesk/internal/monitor"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode"
 
@@ -65,6 +67,14 @@ type Server struct {
 	adminState    *catalog
 	presence      Presence
 	loginSessions map[string]loginSession
+	console       *administration
+	monitor       *monitor.Collector
+	started       time.Time
+	requests      atomic.Uint64
+	relayRX       atomic.Uint64
+	relayTX       atomic.Uint64
+	relayPackets  atomic.Uint64
+	components    map[string]ServiceStatus
 }
 
 func New(cfg Config, st store.Registry) (*Server, error) {
@@ -95,6 +105,19 @@ func NewWithBackends(cfg Config, st store.Registry, presence Presence, state Sta
 		}
 		s.static = http.FileServer(http.Dir(cfg.AdminDirectory))
 	}
+	s.console, e = newAdministration(cfg.Store)
+	if e != nil {
+		cancel()
+		return nil, e
+	}
+	s.started = time.Now().UTC()
+	s.monitor = monitor.New(filepath.Dir(cfg.Store))
+	s.monitor.Collect()
+	s.components = map[string]ServiceStatus{
+		"HTTPS": {Name: "HTTPS / API / Admin", State: "starting", Listen: cfg.Listen, Detail: "HTTPS listener has not yet reported readiness"},
+		"UDP":   {Name: "STUN / media relay", State: "starting", Listen: cfg.STUN, Detail: "UDP listener has not yet reported readiness"},
+	}
+	go s.collectMetrics()
 	go s.maintenance()
 	return s, nil
 }
@@ -179,10 +202,11 @@ func (s *Server) rateOK(addr string) bool {
 	return b.count <= 120
 }
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.requests.Add(1)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Referrer-Policy", "no-referrer")
-	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 	if !s.rateOK(r.RemoteAddr) {
 		fail(w, 429, "rate limit exceeded")
 		return
@@ -203,15 +227,20 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		jsonResponse(w, 200, map[string]any{"ok": true, "protocol": protocol.Version})
 		return
 	}
-	if !strings.HasPrefix(r.URL.Path, "/v1/") {
-		if r.Method != "GET" {
-			fail(w, 405, "method not allowed")
-			return
-		}
-		s.static.ServeHTTP(w, r)
+	if r.URL.Path == "/" || r.URL.Path == "/admin" {
+		http.Redirect(w, r, "/admin/", http.StatusTemporaryRedirect)
 		return
 	}
+	if strings.HasPrefix(r.URL.Path, "/admin/") && r.Method == "GET" {
+		http.StripPrefix("/admin", s.static).ServeHTTP(w, r)
+		return
+	}
+
 	reg := r.URL.Path == "/v1/register" && r.Method == "POST"
+	if reg && !s.console.registrationOpen() {
+		fail(w, 403, "new device registration is disabled")
+		return
+	}
 	if reg && !sameSecret(bearer(r), s.cfg.EnrollmentToken) {
 		fail(w, 401, "invalid enrollment token")
 		return
@@ -321,7 +350,7 @@ func (s *Server) peer(id string) (protocol.Peer, bool) {
 			v = live{}
 		}
 	}
-	return protocol.Peer{Device: d, Candidates: v.candidates, Online: !d.Disabled && !v.seen.IsZero() && time.Since(v.seen) < 20*time.Second, LastSeen: v.seen.Unix()}, true
+	return protocol.Peer{Device: d, Candidates: v.candidates, Online: !d.Disabled && !s.console.disabled(id) && !v.seen.IsZero() && time.Since(v.seen) < 20*time.Second, LastSeen: v.seen.Unix()}, true
 }
 func (s *Server) push(id string, e protocol.Event) {
 	s.seq++

@@ -73,6 +73,9 @@ func (s *Server) ServeMediaUDP(ctx context.Context, c *net.UDPConn) error {
 			s.mu.Unlock()
 			continue
 		}
+		if p[21] == 0 {
+			s.relayRX.Add(uint64(len(p) - media.RelayHeader))
+		}
 		v.budget -= len(p)
 		v.udpAddr[side] = addr
 		v.udpSeen[side] = now
@@ -93,7 +96,34 @@ func (s *Server) ServeMediaUDP(ctx context.Context, c *net.UDPConn) error {
 		}
 		s.mu.Unlock()
 		if out != nil {
-			_, _ = c.WriteToUDP(out, dst)
+			if n, e := c.WriteToUDP(out, dst); e == nil && n == len(out) && out[21] == 2 {
+				s.relayTX.Add(uint64(n - media.RelayHeader))
+				s.relayPackets.Add(1)
+			}
 		}
 	}
+}
+
+func (s *Server) relayStats() map[string]any {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now()
+	valid, paired := 0, 0
+	for _, v := range s.sessions {
+		if v.status.Kind != "desktop" || v.status.Closed || v.status.ExpiresAt < now.Unix() {
+			continue
+		}
+		valid++
+		if now.Sub(v.udpSeen[0]) < 5*time.Second && now.Sub(v.udpSeen[1]) < 5*time.Second {
+			paired++
+		}
+	}
+	state := "starting"
+	if c, ok := s.components["UDP"]; ok && c.State == "ready" {
+		state = "online"
+	}
+	if s.ctx.Err() != nil {
+		state = "stopping"
+	}
+	return map[string]any{"status": state, "listen": s.cfg.STUN, "advertise": "configured at clients", "valid_grants": valid, "both_sides_seen": paired, "received_payload_bytes": s.relayRX.Load(), "forwarded_payload_bytes": s.relayTX.Load(), "forwarded_packets": s.relayPackets.Load()}
 }

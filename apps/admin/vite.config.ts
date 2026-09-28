@@ -1,3 +1,8 @@
-import { defineConfig } from 'vite';
-import vue from '@vitejs/plugin-vue';
-export default defineConfig({ plugins:[vue()], build:{outDir:'dist',sourcemap:false}, server:{host:'127.0.0.1'} });
+import { defineConfig } from 'vite'
+import vue from '@vitejs/plugin-vue'
+export default defineConfig({
+  base: '/admin/',
+  plugins: [vue()],
+  build: { outDir: '../../internal/server/static', emptyOutDir: true, sourcemap: false,
+    rollupOptions: { output: { manualChunks: { vue: ['vue'], element: ['element-plus'] } } } },
+})

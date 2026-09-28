@@ -32,7 +32,7 @@ func execute() error {
 	}
 	switch os.Args[1] {
 	case "version":
-		fmt.Println("RemoteDesk coordinator 0.1.0-increment (control plane + SSH relay)")
+		fmt.Println("RemoteDesk Server 0.3.0 (integrated Vue Admin)")
 		return nil
 	case "init":
 		f := flag.NewFlagSet("init", flag.ContinueOnError)
@@ -81,10 +81,22 @@ func execute() error {
 			return e
 		}
 		defer udp.Close()
+		app.SetComponent("UDP", "ready", udp.LocalAddr().String(), "STUN and authenticated encrypted media relay share this UDP socket")
 		errCh := make(chan error, 2)
 		go func() { errCh <- app.ServeMediaUDP(ctx, udp) }()
 		srv := &http.Server{Addr: cfg.Listen, Handler: app, TLSConfig: &tls.Config{MinVersion: tls.VersionTLS13, NextProtos: []string{"http/1.1"}}, TLSNextProto: map[string]func(*http.Server, *tls.Conn, http.Handler){}, ReadHeaderTimeout: 8 * time.Second, ReadTimeout: 25 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10}
-		go func() { errCh <- srv.ListenAndServeTLS(cfg.TLSCert, cfg.TLSKey) }()
+		cert, e := tls.LoadX509KeyPair(cfg.TLSCert, cfg.TLSKey)
+		if e != nil {
+			return e
+		}
+		srv.TLSConfig.Certificates = []tls.Certificate{cert}
+		listener, e := tls.Listen("tcp", cfg.Listen, srv.TLSConfig)
+		if e != nil {
+			return e
+		}
+		defer listener.Close()
+		app.SetComponent("HTTPS", "ready", listener.Addr().String(), "API, Vue Admin, signaling and SSH relay")
+		go func() { errCh <- srv.Serve(listener) }()
 		app.LogReady()
 		select {
 		case <-ctx.Done():

@@ -1,5 +1,5 @@
 ; Full user-session client package. No default unattended password is installed.
-#define MyAppVersion "0.2.0"
+#define MyAppVersion "0.3.0"
 [Setup]
 AppId={{234A6EAC-9C68-4FEA-B5D0-0092C1D664AF}
 AppName=RemoteDesk
@@ -10,7 +10,7 @@ PrivilegesRequired=admin
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0.17763
-OutputDir=..\dist\installer
+OutputDir=..\release
 OutputBaseFilename=RemoteDeskSetup
 Compression=lzma2
 SolidCompression=yes
