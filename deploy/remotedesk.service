@@ -1,0 +1,23 @@
+# Template. Before enabling: install binaries, create the remotedesk service account,
+# initialize /var/lib/remotedesk while owned by that account, and configure public certificate hosts.
+[Unit]
+Description=RemoteDesk private coordinator and SSH relay
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=simple
+User=remotedesk
+Group=remotedesk
+ExecStart=/opt/remotedesk/remote-server run --config /var/lib/remotedesk/server.json
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/remotedesk
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LimitNOFILE=65536
+UMask=0077
+[Install]
+WantedBy=multi-user.target

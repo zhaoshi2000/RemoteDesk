@@ -1,0 +1,40 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: remotedesk
+      POSTGRES_USER: remotedesk
+      POSTGRES_PASSWORD: ${RD_POSTGRES_PASSWORD:?set a strong database password}
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U remotedesk"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+  redis:
+    image: redis:7
+    command: [sh, -c, 'exec redis-server --appendonly yes --requirepass "$$RD_REDIS_PASSWORD"']
+    environment:
+      RD_REDIS_PASSWORD: ${RD_REDIS_PASSWORD:?set a strong Redis password}
+    volumes: [redisdata:/data]
+    restart: unless-stopped
+  server:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.pg
+    environment:
+      RD_POSTGRES_URL: ${RD_POSTGRES_URL:?URL-encode credentials; hostname postgres}
+      RD_REDIS_URL: ${RD_REDIS_URL:?URL-encode credentials; hostname redis}
+      RD_ALLOW_PRIVATE_PLAINTEXT_BACKENDS: "1"
+    volumes: ["${RD_SERVER_STATE:?absolute server state path}:/state"]
+    ports: ["8443:8443/tcp", "3478:3478/udp", "3479:3479/udp"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+volumes:
+  pgdata:
+  redisdata:

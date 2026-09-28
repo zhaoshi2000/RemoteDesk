@@ -1,0 +1,6 @@
+{
+  "name": "remotedesk-terminal", "private": true, "version": "0.2.0", "type": "module",
+  "scripts": {"build": "tsc --noEmit && vite build"},
+  "dependencies": {"@xterm/xterm": "^5.5.0", "@xterm/addon-fit": "^0.10.0"},
+  "devDependencies": {"typescript": "~5.9.2", "vite": "^7.1.0"}
+}

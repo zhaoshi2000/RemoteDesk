@@ -1,0 +1,15 @@
+/state/
+/build/
+/dist/
+/target/
+/vcpkg_installed/
+**/node_modules/
+apps/*/dist/
+*.key
+*.token
+*.pem
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store

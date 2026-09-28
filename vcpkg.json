@@ -1,0 +1,20 @@
+{
+  "name": "remotedesk-native",
+  "version-string": "0.2.0",
+  "dependencies": [
+    {
+      "name": "ffmpeg",
+      "default-features": false,
+      "features": [
+        "avcodec",
+        "swresample",
+        "swscale",
+        "nvcodec",
+        "qsv",
+        "amf",
+        "openh264"
+      ]
+    },
+    "opus"
+  ]
+}

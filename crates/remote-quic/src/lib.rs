@@ -134,7 +134,7 @@ async fn video_writer(connection:Connection, packet:Packet) {
     let sent=async {
         let mut stream=connection.open_uni().await.map_err(|_|())?;
         let _=stream.set_priority(wire::priority(VIDEO));
-        let transfer=async { stream.write_all(&packet.data).await.map_err(|_|())?;stream.finish().map_err(|_|())?;stream.stopped().await.map_err(|_|())?;Ok::<(),()>(()) };
+        let transfer=async { stream.write_all(&packet.data).await.map_err(|_|())?;stream.finish().map_err(|_|())?;if stream.stopped().await.map_err(|_|())?.is_some(){return Err(());}Ok::<(),()>(()) };
         if !matches!(timeout(FRAME_TTL,transfer).await, Ok(Ok(()))) {let _=stream.reset(VarInt::from_u32(0x100));return Err(());}
         Ok(())
     }.await;
@@ -162,7 +162,7 @@ async fn receive_stream(mut stream:quinn::RecvStream,shared:Arc<Shared>,seen:Arc
         let mut header=[0u8;HEADER];
         // A reset can intentionally cancel a stale video, including its partial header.
         let result=if first {match timeout(Duration::from_secs(5),stream.read_exact(&mut header)).await {Ok(r)=>r,Err(_)=>{let _=stream.stop(VarInt::from_u32(0x100));return Ok(());}}} else {stream.read_exact(&mut header).await};
-        if result.is_err(){return Ok(());}
+        if result.is_err(){if matches!(channel,Some(c) if c!=VIDEO){return Err("reliable channel reset or truncated header".into());}return Ok(());}
         let h=wire::header(&header).map_err(str::to_owned)?;
         if first {
             channel=Some(h.channel);first=false;
@@ -255,23 +255,23 @@ pub unsafe extern "C" fn rdq_create(c:*const RdqConfig,error:*mut c_char,cap:usi
     match Session::new(config){Ok(s)=>Box::into_raw(Box::new(s)),Err(e)=>{error_copy(error,cap,&e);ptr::null_mut()}}
 }
 #[no_mangle] pub unsafe extern "C" fn rdq_destroy(s:*mut Session){if !s.is_null(){drop(Box::from_raw(s));}}
-#[no_mangle] pub unsafe extern "C" fn rdq_port(s:*const Session)->u16{if s.is_null(){0}else{(*s).port()}}
-#[no_mangle] pub unsafe extern "C" fn rdq_state(s:*const Session)->i32{if s.is_null(){-1}else{(*s).state()}}
-#[no_mangle] pub unsafe extern "C" fn rdq_error(s:*const Session,out:*mut c_char,cap:usize){if !s.is_null(){error_copy(out,cap,&(*s).shared.error.lock().unwrap_or_else(|p|p.into_inner()));}}
+#[no_mangle] pub unsafe extern "C" fn rdq_port(s:*const Session)->u16{if s.is_null(){0}else{(&*s).port()}}
+#[no_mangle] pub unsafe extern "C" fn rdq_state(s:*const Session)->i32{if s.is_null(){-1}else{(&*s).state()}}
+#[no_mangle] pub unsafe extern "C" fn rdq_error(s:*const Session,out:*mut c_char,cap:usize){if !s.is_null(){error_copy(out,cap,&(&*s).shared.error.lock().unwrap_or_else(|p|p.into_inner()));}}
 #[no_mangle] pub unsafe extern "C" fn rdq_send(s:*const Session,data:*const u8,len:usize)->i32 {
     if s.is_null()||data.is_null()||!(HEADER..=wire::MAX_VIDEO+HEADER).contains(&len){return -1;}
-    match (*s).send(slice::from_raw_parts(data,len).to_vec()){Ok(true)=>1,Ok(false)=>0,Err(e)=>{(*s).shared.error(e);-1}}
+    match (&*s).send(slice::from_raw_parts(data,len).to_vec()){Ok(true)=>1,Ok(false)=>0,Err(e)=>{(&*s).shared.error(e);(&*s).stop();-1}}
 }
 #[no_mangle] pub unsafe extern "C" fn rdq_receive(s:*const Session,out:*mut u8,cap:usize)->isize {
     if s.is_null()||out.is_null(){return -1;}
-    let mut q=(*s).shared.incoming.lock().unwrap_or_else(|p|p.into_inner());
+    let mut q=(&*s).shared.incoming.lock().unwrap_or_else(|p|p.into_inner());
     let n=match q.messages.front(){None=>return 0,Some(b)=>b.len()};if cap<n{return -2;}
     let b=q.messages.pop_front().unwrap();q.bytes-=n;ptr::copy_nonoverlapping(b.as_ptr(),out,n);n as isize
 }
-#[no_mangle] pub unsafe extern "C" fn rdq_acknowledge(s:*const Session,id:u64){if !s.is_null(){let _=(*s).tx.try_send(Command::Ack(id));}}
-#[no_mangle] pub unsafe extern "C" fn rdq_queued_video(s:*const Session)->usize{if s.is_null(){0}else{(*s).shared.video.load(Ordering::Relaxed)}}
-#[no_mangle] pub unsafe extern "C" fn rdq_dropped(s:*const Session)->u64{if s.is_null(){0}else{(*s).shared.dropped.load(Ordering::Relaxed)}}
-#[no_mangle] pub unsafe extern "C" fn rdq_rtt_us(s:*const Session)->u64{if s.is_null(){0}else{(*s).shared.rtt.load(Ordering::Relaxed)}}
+#[no_mangle] pub unsafe extern "C" fn rdq_acknowledge(s:*const Session,id:u64){if !s.is_null(){let _=(&*s).tx.try_send(Command::Ack(id));}}
+#[no_mangle] pub unsafe extern "C" fn rdq_queued_video(s:*const Session)->usize{if s.is_null(){0}else{(&*s).shared.video.load(Ordering::Relaxed)}}
+#[no_mangle] pub unsafe extern "C" fn rdq_dropped(s:*const Session)->u64{if s.is_null(){0}else{(&*s).shared.dropped.load(Ordering::Relaxed)}}
+#[no_mangle] pub unsafe extern "C" fn rdq_rtt_us(s:*const Session)->u64{if s.is_null(){0}else{(&*s).shared.rtt.load(Ordering::Relaxed)}}
 
 #[cfg(test)]
 mod tests {
