@@ -80,6 +80,18 @@ def main() -> None:
                     page.locator('nav button[title="运行总览"]').click()
                     page.get_by_role('button', name='刷新', exact=True).click()
                     expect(page.get_by_text('本地验收节点（非生产数据）', exact=True)).to_be_visible()
+                    # CPU and rate counters require two actual samples; no fixed values.
+                    for sample_attempt in range(20):
+                        measured = context.request.get(url + '/v1/admin/overview').json()
+                        cpu = measured['server']['sample']['cpu_percent']
+                        if isinstance(cpu, (float, int)) and 0 <= cpu <= 100:
+                            break
+                        page.wait_for_timeout(1000)
+                    else:
+                        raise AssertionError('live CPU sampler did not produce a value')
+                    page.wait_for_timeout(5500)
+                    page.get_by_role('button', name='刷新', exact=True).click()
+                    page.wait_for_timeout(500)
                     page.screenshot(path=str(evidence / 'overview-light.png'), full_page=True)
                     page.get_by_role('button', name='切换主题').click()
                     page.screenshot(path=str(evidence / 'overview-dark.png'), full_page=True)
@@ -92,6 +104,8 @@ def main() -> None:
                     server.wait(timeout=15)
                     expect(page.locator('.header-right .el-tag')).to_have_text('服务端失联', timeout=20000)
                     assert page.locator('.header-right .status-dot.good').count() == 0
+                    assert page.locator('.el-table .el-tag--success').count() == 0
+                    assert page.get_by_text('状态未知', exact=True).count() >= 2
                     page.screenshot(path=str(evidence / 'server-unreachable.png'), full_page=True)
                     assert not errors, f'Uncaught browser errors: {errors}'
                     context.close()
@@ -99,7 +113,8 @@ def main() -> None:
                 (evidence / 'RESULT.json').write_text(json.dumps({
                     'result':'passed', 'scope':'isolated real server binary + real Chromium',
                     'checks':['login', 'ten navigation pages', 'live server status', 'settings persistence',
-                              'light/dark themes', 'mobile render', 'server stop changes status to unreachable',
+                              'live CPU samples', 'light/dark themes', 'mobile render', 'server stop changes status to unreachable',
+                              'stale component badges become unknown',
                               'no uncaught page errors'],
                     'not_tested':['public network reachability', 'Windows remote desktop GPU performance'],
                 }, ensure_ascii=False, indent=2), encoding='utf-8')
