@@ -38,19 +38,22 @@ jobs:
           raw=p.read_bytes()
           assert hashlib.sha256(raw).hexdigest()=='94e7e4180f23253cfac4af42e9c4886a523e07ed7e35b69f8ee81fe75e0bfddc','Source changed'
           text=raw.decode()
-          text=text.replace("                    page.screenshot(path=str(evidence / 'overview-light.png'), full_page=True)", """                    # CPU and rate counters require two actual samples; no fixed values.
-                              for sample_attempt in range(20):
-                                  measured = context.request.get(url + '/v1/admin/overview').json()
-                                  cpu = measured['server']['sample']['cpu_percent']
-                                  if isinstance(cpu, (float, int)) and 0 <= cpu <= 100:
-                                      break
-                                  page.wait_for_timeout(1000)
-                              else:
-                                  raise AssertionError('live CPU sampler did not produce a value')
-                              page.wait_for_timeout(5500)
-                              page.get_by_role('button', name='刷新', exact=True).click()
-                              page.wait_for_timeout(500)
-                              page.screenshot(path=str(evidence / 'overview-light.png'), full_page=True)""".replace('\n          ','\n'))
+          insert='\n'.join([
+            ' '*20+'# CPU and rate counters require two actual samples; no fixed values.',
+            ' '*20+'for sample_attempt in range(20):',
+            ' '*24+"measured = context.request.get(url + '/v1/admin/overview').json()",
+            ' '*24+"cpu = measured['server']['sample']['cpu_percent']",
+            ' '*24+'if isinstance(cpu, (float, int)) and 0 <= cpu <= 100:',
+            ' '*28+'break',
+            ' '*24+'page.wait_for_timeout(1000)',
+            ' '*20+'else:',
+            ' '*24+"raise AssertionError('live CPU sampler did not produce a value')",
+            ' '*20+'page.wait_for_timeout(5500)',
+            ' '*20+"page.get_by_role('button', name='刷新', exact=True).click()",
+            ' '*20+'page.wait_for_timeout(500)',
+            ' '*20+"page.screenshot(path=str(evidence / 'overview-light.png'), full_page=True)",
+          ])
+          text=text.replace("                    page.screenshot(path=str(evidence / 'overview-light.png'), full_page=True)",insert)
           text=text.replace("                    assert page.locator('.header-right .status-dot.good').count() == 0", "                    assert page.locator('.header-right .status-dot.good').count() == 0\n                    assert page.locator('.el-table .el-tag--success').count() == 0\n                    assert page.get_by_text('状态未知', exact=True).count() >= 2")
           text=text.replace("'light/dark themes', 'mobile render', 'server stop changes status to unreachable',", "'live CPU samples', 'light/dark themes', 'mobile render', 'server stop changes status to unreachable',\n                              'stale component badges become unknown',")
           assert hashlib.sha256(text.encode()).hexdigest()=='4764fae7f69f283b23f26b071407f1a2f1a42571c95680af6c97690a529c28fc','Unexpected browser test content'
