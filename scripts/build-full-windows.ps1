@@ -18,7 +18,8 @@ foreach ($App in @('terminal')) {
   Invoke-Checked npm.cmd @('run','build')
  } finally { Pop-Location }
 }
-$Out=Join-Path $PWD 'dist/windows-amd64'
+# Only files from this build may enter the client installer.
+$Out=Join-Path $PWD ("build/client-package/"+[guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Force $Out | Out-Null
 $env:CGO_ENABLED='0'
 foreach ($Name in @('remote-agent','remote-updater')) {
@@ -49,6 +50,6 @@ if ($Installer) {
  $ISCC=(Get-Command ISCC.exe -ErrorAction SilentlyContinue).Source
  if (!$ISCC) { $ISCC="${env:ProgramFiles(x86)}/Inno Setup 6/ISCC.exe" }
  if (!(Test-Path $ISCC)) { throw 'Inno Setup compiler not found' }
- Invoke-Checked $ISCC @('installer/RemoteDesk.iss')
+ Invoke-Checked $ISCC @("/DBundleDir=$Out",'installer/RemoteDesk.iss')
  if (!(Test-Path 'release/RemoteDeskSetup.exe')) { throw 'The client installer was not generated.' }
 }

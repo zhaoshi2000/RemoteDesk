@@ -140,20 +140,9 @@ func SafePath(root, rel string, createParents bool) (string, error) {
 	if e != nil {
 		return "", e
 	}
-	root, e = filepath.Abs(root)
+	root, e = canonicalShareRoot(root)
 	if e != nil {
 		return "", e
-	}
-	resolved, e := filepath.EvalSymlinks(root)
-	if e != nil {
-		return "", e
-	}
-	if resolved != root {
-		return "", errors.New("share root must not traverse links")
-	}
-	st, e := os.Lstat(root)
-	if e != nil || !st.IsDir() {
-		return "", errors.New("share root unavailable")
 	}
 	if clean == "." {
 		return root, nil
@@ -178,7 +167,7 @@ func SafePath(root, rel string, createParents bool) (string, error) {
 		if e != nil {
 			return "", e
 		}
-		if st.Mode()&os.ModeSymlink != 0 {
+		if isLinkOrReparse(st) {
 			return "", errors.New("links are not shared")
 		}
 		if i < len(parts)-1 && !st.IsDir() {

@@ -1,5 +1,8 @@
 ; Full user-session client package. No default unattended password is installed.
 #define MyAppVersion "0.3.0"
+#ifndef BundleDir
+#define BundleDir "..\dist\windows-amd64"
+#endif
 [Setup]
 AppId={{234A6EAC-9C68-4FEA-B5D0-0092C1D664AF}
 AppName=RemoteDesk
@@ -17,7 +20,7 @@ SolidCompression=yes
 WizardStyle=modern
 UninstallDisplayIcon={app}\RemoteDesk.exe
 [Files]
-Source: "..\dist\windows-amd64\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#BundleDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 [Tasks]
 Name: "desktopicon"; Description: "创建桌面快捷方式"; Flags: unchecked
 Name: "openssh"; Description: "检测并安装本机 OpenSSH Server（仅回环监听；不改写已有非回环配置）"
