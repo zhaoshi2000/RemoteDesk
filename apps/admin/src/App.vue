@@ -16,7 +16,9 @@ const query=ref(''), filter=ref('all'), group=ref(''), devicePage=ref(1), auditQ
 const editing=ref(false), editingID=ref(''), deviceForm=reactive<DeviceMeta>({alias:'',group:'',notes:'',disabled:false}), saving=ref(false)
 const publishing=ref(false), releaseText=ref('')
 const userRole=ref(''),userName=ref(''),users=ref<{id:string;name:string;role:string;created:number}[]>([]),newUser=reactive({name:'',role:'viewer'}),newToken=ref('')
-const canEdit=computed(()=>healthy.value&&userRole.value==='admin')
+const settingsLoading=ref(false)
+let detailsGeneration=0
+const canEdit=computed(()=>healthy.value&&userRole.value==='admin'&&!settingsLoading.value)
 const visibleMenus=computed(()=>menus.filter(m=>m.id!=='users'||userRole.value==='admin'))
 let poll:number|undefined, clock:number|undefined
 const controllers=new Set<AbortController>()
@@ -54,13 +56,24 @@ async function api<T>(path:string,method='GET',body?:unknown):Promise<T>{
  } finally{window.clearTimeout(timer);controllers.delete(controller)}
 }
 async function loadPage(){
+ const target=page.value, generation=++detailsGeneration
+ const current=()=>generation===detailsGeneration&&page.value===target
+ settingsLoading.value=target==='settings'
  try{
-  if(page.value==='audit'){const a=await api<Audit[]>('console-audit');const b=await api<{at:number;actor:string;action:string;object:string}[]>('audit');audits.value=[...a,...b.map(x=>({at:new Date(x.at*1000).toISOString(),actor:x.actor,action:x.action,target:x.object,result:'success'}))].sort((a,b)=>b.at.localeCompare(a.at))}
-  if(page.value==='users')users.value=await api<typeof users.value>('users')
-  if(page.value==='settings')Object.assign(settings,await api<Settings>('settings'))
-  if(page.value==='releases'){const es=await api<{manifest:{version:string;url:string;sha256:string;platform:string;issued_at:number}}[]>('releases');releases.value=es.map(x=>({version:x.manifest.version,url:x.manifest.url,sha256:x.manifest.sha256,notes:x.manifest.platform,published_at:new Date(x.manifest.issued_at*1000).toISOString()}))}
-  if(page.value==='metrics'||!samples.value.length)samples.value=(await api<{samples:Sample[]}>('metrics')).samples
- }catch(e){ElMessage.error(showError(e))}
+  if(target==='audit'){
+   const a=await api<Audit[]>('console-audit')
+   const b=await api<{at:number;actor:string;action:string;object:string}[]>('audit')
+   if(current())audits.value=[...a,...b.map(x=>({at:new Date(x.at*1000).toISOString(),actor:x.actor,action:x.action,target:x.object,result:'success'}))].sort((a,b)=>b.at.localeCompare(a.at))
+  }
+  if(target==='users'){const data=await api<typeof users.value>('users');if(current())users.value=data}
+  if(target==='settings'){const data=await api<Settings>('settings');if(current())Object.assign(settings,data)}
+  if(target==='releases'){
+   const es=await api<{manifest:{version:string;url:string;sha256:string;platform:string;issued_at:number}}[]>('releases')
+   if(current())releases.value=es.map(x=>({version:x.manifest.version,url:x.manifest.url,sha256:x.manifest.sha256,notes:x.manifest.platform,published_at:new Date(x.manifest.issued_at*1000).toISOString()}))
+  }
+  if(target==='metrics'||!samples.value.length){const data=await api<{samples:Sample[]}>('metrics');if(current())samples.value=data.samples}
+ }catch(e){if(current())ElMessage.error(showError(e))}
+ finally{if(generation===detailsGeneration)settingsLoading.value=false}
 }
 async function refresh(withDetails=false){
  if(!logged.value||busy.value)return
@@ -122,7 +135,7 @@ onUnmounted(()=>{window.clearInterval(poll);window.clearInterval(clock);controll
    <template v-else-if="page==='users'"><el-card shadow="never"><template #header><h3>用户与角色</h3></template><p class="muted">每个用户使用独立随机访问令牌登录；服务端只保存令牌哈希。删除用户立即使其管理会话失效。</p><div class="filters"><el-input v-model="newUser.name" maxlength="100" placeholder="用户名称"/><el-select v-model="newUser.role"><el-option label="只读用户" value="viewer"/><el-option label="会话操作员" value="operator"/><el-option label="管理员" value="admin"/></el-select><el-button type="primary" :disabled="!canEdit" @click="createUser">创建用户</el-button></div><el-alert v-if="newToken" type="warning" title="访问令牌仅显示这一次，请保存到私密位置" :closable="false"><el-input :model-value="newToken" type="password" show-password readonly/><el-button text @click="newToken=''">隐藏令牌</el-button></el-alert><el-table :data="users" empty-text="暂无其他用户，内置 admin 不计入此表"><el-table-column prop="name" label="用户"/><el-table-column prop="role" label="角色"/><el-table-column label="创建时间" min-width="190"><template #default="{row}">{{ time(row.created) }}</template></el-table-column><el-table-column label="操作"><template #default="{row}"><el-button text type="danger" :disabled="!canEdit" @click="removeUser(row.id,row.name)">撤销访问</el-button></template></el-table-column></el-table></el-card></template>
    <template v-else-if="page==='audit'"><el-card shadow="never"><div class="filters"><el-input v-model="auditQuery" :prefix-icon="Search" placeholder="搜索动作 / 操作目标 / 操作者" clearable @input="auditPage=1"/></div><el-table :data="pagedAudit" empty-text="暂无审计记录"><el-table-column label="时间" min-width="180"><template #default="{row}">{{ time(row.at) }}</template></el-table-column><el-table-column prop="actor" label="操作者" width="110"/><el-table-column prop="action" label="动作" min-width="160"/><el-table-column prop="target" label="目标" min-width="180" show-overflow-tooltip/><el-table-column label="结果"><template #default="{row}"><el-tag type="success">{{ row.result==='success'?'成功':row.result }}</el-tag></template></el-table-column></el-table><div class="table-footer"><span>显示监控后台及核心管理审计记录；不记录密码和会话密钥</span><el-pagination v-model:current-page="auditPage" :total="filteredAudit.length" :page-size="15" layout="prev,pager,next"/></div></el-card></template>
    <template v-else-if="page==='releases'"><el-alert title="版本清单必须通过预置公钥验签。自动替换、回滚和 Windows 实机验收仍需单独完成。" type="info" :closable="false" class="mb"/><el-card shadow="never"><template #header><div class="panel-heading"><div><h3>客户端版本</h3><span>下载地址、SHA-256 校验和更新说明</span></div><el-button type="primary" :disabled="!canEdit" @click="publishing=true">登记版本</el-button></div></template><el-table :data="releases" empty-text="尚未登记版本，不会显示虚构的最新版"><el-table-column prop="version" label="版本" width="140"/><el-table-column prop="notes" label="更新说明" min-width="200" show-overflow-tooltip/><el-table-column prop="sha256" label="SHA-256" min-width="230" show-overflow-tooltip/><el-table-column label="登记时间" min-width="180"><template #default="{row}">{{ time(row.published_at) }}</template></el-table-column><el-table-column label="下载" width="100"><template #default="{row}"><a :href="row.url" target="_blank" rel="noopener noreferrer">下载安装包</a></template></el-table-column></el-table></el-card></template>
-   <template v-else-if="page==='settings'"><el-card shadow="never" class="settings-card"><template #header><h3>基础配置</h3></template><el-form label-position="top"><el-form-item label="服务器节点名称"><el-input v-model="settings.node_name" maxlength="100" show-word-limit/></el-form-item><el-form-item label="开放新设备注册"><el-switch v-model="settings.registration_open"/><span class="muted inline-note">关闭后拒绝新的注册请求；已有设备可继续心跳</span></el-form-item><el-form-item label="后台通知"><el-input v-model="settings.notice" type="textarea" :rows="4" maxlength="2000" show-word-limit/></el-form-item><el-button type="primary" :disabled="!canEdit" :loading="saving" @click="saveSettings">保存配置</el-button></el-form><el-divider/><p class="muted">监听端口、TLS 证书和中继公网地址在服务器私有配置文件中设置；不通过网页随意改端口或覆盖密钥。</p></el-card></template>
+   <template v-else-if="page==='settings'"><el-card shadow="never" class="settings-card"><template #header><h3>基础配置</h3></template><el-form label-position="top" :disabled="settingsLoading"><el-form-item label="服务器节点名称"><el-input v-model="settings.node_name" maxlength="100" show-word-limit/></el-form-item><el-form-item label="开放新设备注册"><el-switch v-model="settings.registration_open"/><span class="muted inline-note">关闭后拒绝新的注册请求；已有设备可继续心跳</span></el-form-item><el-form-item label="后台通知"><el-input v-model="settings.notice" type="textarea" :rows="4" maxlength="2000" show-word-limit/></el-form-item><el-button type="primary" :disabled="!canEdit" :loading="saving" @click="saveSettings">保存配置</el-button></el-form><el-divider/><p class="muted">监听端口、TLS 证书和中继公网地址在服务器私有配置文件中设置；不通过网页随意改端口或覆盖密钥。</p></el-card></template>
    <template v-else-if="page==='security'"><div class="content-grid"><el-card shadow="never"><template #header><h3>管理员访问</h3></template><el-descriptions :column="1" border><el-descriptions-item label="当前账号">{{ userName==='root'?'admin':userName }}</el-descriptions-item><el-descriptions-item label="角色">{{ userRole }}</el-descriptions-item><el-descriptions-item label="会话有效期">8 小时，退出登录立即撤销该会话</el-descriptions-item><el-descriptions-item label="浏览器凭证">Secure / HttpOnly / SameSite=Strict Cookie</el-descriptions-item><el-descriptions-item label="写入保护">会话 CSRF 校验 + 同源检查</el-descriptions-item><el-descriptions-item label="登录限流">同来源 5 次失败 / 5 分钟窗口</el-descriptions-item></el-descriptions></el-card><el-card shadow="never"><template #header><h3>远程授权边界</h3></template><div class="security-note"><h4>设备私钥不上传到服务端</h4><p>管理后台账号不自动获得远程控制权限。远控仍需要设备本地显式授权。</p><h4>SSH 不直接暴露公网 22</h4><p>客户端通过加密隧道访问被控端回环 SSH 服务，并继续执行正常 SSH 用户认证。</p><h4>禁用不等于撤销所有直连</h4><p>后台禁用阻止中心服务访问并关闭中心 SSH 中继；已有直连仍需从设备本地撤销信任。</p><h4>不提供隐蔽控制或关闭系统安全机制</h4><p>本后台没有安全桌面绕过、秘密授权或关闭 UAC 的开关。</p></div></el-card></div></template>
    <footer class="page-footer"><span>RemoteDesk Admin · 服务端集成部署</span><span>最后取得状态：{{ receivedAt?new Date(receivedAt).toLocaleTimeString('zh-CN',{hour12:false}):'—' }} · {{ auto?'5 秒自动刷新':'自动刷新已暂停' }}</span></footer>
   </main></section>

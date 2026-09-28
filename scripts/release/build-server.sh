@@ -9,6 +9,7 @@ command -v node >/dev/null; command -v npm >/dev/null; command -v go >/dev/null
  # Direct dependencies are pinned. The resolved lock is included in the server package.
  if [[ ! -f package-lock.json ]]; then npm install --package-lock-only --ignore-scripts; fi
  npm ci
+ npm audit --audit-level=high
  npm test
  npm run build
 )
@@ -27,6 +28,7 @@ cp deploy/remotedesk-server.service "$PACKAGE/remotedesk-server.service"
 cp docs/TWO_PACKAGES.md "$PACKAGE/docs/DEPLOYMENT.md"
 cp apps/admin/package-lock.json "$PACKAGE/docs/admin-package-lock.json"
 cp licenses/Go-LICENSE.txt "$PACKAGE/licenses/Go-LICENSE.txt"
+cp -a licenses/frontend/. "$PACKAGE/licenses/"
 for entry in vue element-plus '@element-plus/icons-vue'; do
  for license in LICENSE LICENSE.md LICENSE.txt; do
   if [[ -f "apps/admin/node_modules/$entry/$license" ]]; then
