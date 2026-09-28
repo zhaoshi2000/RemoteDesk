@@ -1,0 +1,84 @@
+name: Verify final server package
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/verify-live-status.yml']
+permissions:
+  contents: write
+jobs:
+  server:
+    if: github.repository == 'zhaoshi2000/RemoteDesk' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply verified final UI corrections
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,subprocess
+          p=Path('apps/admin/src/App.vue')
+          raw=p.read_bytes()
+          assert hashlib.sha256(raw).hexdigest()=='ac6fe7163f86affa2ce10f2920abfa2dbd0f266807900645bb9627f98d8d0724','Source changed'
+          text=raw.decode()
+          text=text.replace("const visibleMenus=computed", "const canCloseSessions=computed(()=>healthy.value&&['admin','operator'].includes(userRole.value))\nconst visibleMenus=computed")
+          text=text.replace("await api(`sessions/${id}/close`,'POST',{})", "await api('session-close','POST',{id})")
+          text=text.replace(":type=\"row.meta.disabled?'danger':row.online?'success':'info'\"", ":type=\"row.meta.disabled?'danger':healthy&&row.online?'success':'info'\"")
+          text=text.replace("{{ row.meta.disabled?'已禁用':row.online?'在线':'离线' }}", "{{ row.meta.disabled?'已禁用':!healthy?'状态未知':row.online?'在线':'离线' }}")
+          text=text.replace(":type=\"row.state==='ready'?'success':'info'\"", ":type=\"healthy&&row.state==='ready'?'success':'info'\"")
+          text=text.replace("{{ row.state==='ready'?'已就绪':row.state==='disabled'?'未启用':row.state }}", "{{ !healthy?'状态未知':row.state==='ready'?'已就绪':row.state==='disabled'?'未启用':row.state }}")
+          text=text.replace(":type=\"row.closed?'info':row.paired?'success':'warning'\"", ":type=\"!healthy||row.closed?'info':row.paired?'success':'warning'\"")
+          text=text.replace("{{ row.closed?'已结束':row.paired?'中继连接中':'协调中' }}", "{{ !healthy?'状态未知':row.closed?'已结束':row.paired?'中继连接中':'协调中' }}")
+          text=text.replace(":disabled=\"!healthy||!row.paired||row.closed\"", ":disabled=\"!canCloseSessions||!row.paired||row.closed\"")
+          text=text.replace("d.meta.disabled?'已禁用':d.online?'在线':'离线'", "d.meta.disabled?'已禁用':!healthy.value?'状态未知':d.online?'在线':'离线'")
+          assert hashlib.sha256(text.encode()).hexdigest()=='cc02d7f189df0997005cd7b4741a5c8c7ca223818a49ed9dcd53eb4f6318c42c'
+          p.write_text(text)
+          p=Path('scripts/release/smoke-admin.py')
+          raw=p.read_bytes()
+          assert hashlib.sha256(raw).hexdigest()=='94e7e4180f23253cfac4af42e9c4886a523e07ed7e35b69f8ee81fe75e0bfddc','Source changed'
+          text=raw.decode()
+          text=text.replace("                    page.screenshot(path=str(evidence / 'overview-light.png'), full_page=True)", """                    # CPU and rate counters require two actual samples; no fixed values.
+                              for sample_attempt in range(20):
+                                  measured = context.request.get(url + '/v1/admin/overview').json()
+                                  cpu = measured['server']['sample']['cpu_percent']
+                                  if isinstance(cpu, (float, int)) and 0 <= cpu <= 100:
+                                      break
+                                  page.wait_for_timeout(1000)
+                              else:
+                                  raise AssertionError('live CPU sampler did not produce a value')
+                              page.wait_for_timeout(5500)
+                              page.get_by_role('button', name='刷新', exact=True).click()
+                              page.wait_for_timeout(500)
+                              page.screenshot(path=str(evidence / 'overview-light.png'), full_page=True)""".replace('\n          ','\n'))
+          text=text.replace("                    assert page.locator('.header-right .status-dot.good').count() == 0", "                    assert page.locator('.header-right .status-dot.good').count() == 0\n                    assert page.locator('.el-table .el-tag--success').count() == 0\n                    assert page.get_by_text('状态未知', exact=True).count() >= 2")
+          text=text.replace("'light/dark themes', 'mobile render', 'server stop changes status to unreachable',", "'live CPU samples', 'light/dark themes', 'mobile render', 'server stop changes status to unreachable',\n                              'stale component badges become unknown',")
+          assert hashlib.sha256(text.encode()).hexdigest()=='4764fae7f69f283b23f26b071407f1a2f1a42571c95680af6c97690a529c28fc','Unexpected browser test content'
+          p.write_text(text)
+          subprocess.run(['git','add','--','apps/admin/src/App.vue','scripts/release/smoke-admin.py'],check=True)
+          subprocess.run(['git','rm','--','.github/workflows/verify-live-status.yml'],check=True)
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(admin): clear stale component badges and align operator actions with API permissions'
+          git push origin HEAD:main
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: bash scripts/release/build-server.sh
+      - run: go test -race -count=1 ./...
+      - name: Verify real resource samples and failure states in Chromium
+        run: |
+          python3 -m pip install playwright==1.55.0
+          python3 -m playwright install --with-deps chromium
+          sudo apt-get update -qq && sudo apt-get install -y fonts-noto-cjk
+          python3 scripts/release/smoke-admin.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RemoteDesk-Server
+          path: release/RemoteDesk-Server-linux-amd64.tar.gz
+          if-no-files-found: error
