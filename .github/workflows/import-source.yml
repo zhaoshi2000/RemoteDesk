@@ -1,0 +1,65 @@
+name: Import verified engineering source
+on:
+  push:
+    branches: [main]
+    paths: ['.delivery/manifest.json']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  import:
+    if: github.repository == 'zhaoshi2000/RemoteDesk' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify and materialize source files
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import base64, hashlib, json, lzma, pathlib, subprocess
+          root = pathlib.Path.cwd().resolve()
+          manifest = json.loads((root / '.delivery/manifest.json').read_text())
+          expected = '60203b9c507ea6521543e8789aee552d04ae13ec977c36099380faff0e686f78'
+          if manifest != {'format':'xz-json-files-v1','sha256':expected,'decoded_bytes':495628,'files':122,'chunks':21}:
+              raise SystemExit('unexpected source manifest')
+          encoded = ''.join((root / f'.delivery/part-{i:02d}.b64').read_text(encoding='ascii') for i in range(21))
+          packed = base64.b64decode(encoded, validate=True)
+          if hashlib.sha256(packed).hexdigest() != expected:
+              raise SystemExit('source archive hash mismatch')
+          decoder = lzma.LZMADecompressor(memlimit=128*1024*1024)
+          raw = decoder.decompress(packed, max_length=2*1024*1024)
+          if not decoder.eof or decoder.unused_data or len(raw) != 495628:
+              raise SystemExit('invalid archive bounds or trailing content')
+          files = json.loads(raw)
+          if not isinstance(files, dict) or len(files) != 122:
+              raise SystemExit('invalid file count')
+          checked = []
+          for name, item in files.items():
+              p = pathlib.PurePosixPath(name)
+              if not isinstance(name, str) or not name or p.is_absolute() or '\\' in name or ':' in name or '..' in p.parts or any(x in ('.git','.github','.delivery') for x in p.parts) or str(p) != name:
+                  raise SystemExit('unsafe source path')
+              if not isinstance(item, dict) or set(item) != {'content','executable'} or not isinstance(item['content'], str) or not isinstance(item['executable'], bool):
+                  raise SystemExit('invalid file entry')
+              target = root.joinpath(*p.parts)
+              if any(parent.is_symlink() for parent in [target, *target.parents]):
+                  raise SystemExit('symlink destination rejected')
+              if not target.resolve().is_relative_to(root):
+                  raise SystemExit('source path escaped repository')
+              checked.append((name, target, item))
+          for name, target, item in checked:
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_bytes(item['content'].encode('utf-8'))
+              target.chmod(0o755 if item['executable'] else 0o644)
+          subprocess.run(['git','add','--',*[name for name,_,_ in checked]],check=True)
+          subprocess.run(['git','rm','-r','--','.delivery'],check=True)
+          print(f'Verified and imported {len(checked)} source files; SHA256 {expected}')
+          PY
+      - name: Commit source without rewriting history
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat: import complete RemoteDesk v0.2 engineering source'
+          git push origin HEAD:main
+          git rev-parse HEAD
