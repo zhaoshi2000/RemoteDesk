@@ -36,7 +36,7 @@ jobs:
           p.write_text(text)
           p=Path('scripts/release/smoke-admin.py')
           raw=p.read_bytes()
-          assert hashlib.sha256(raw).hexdigest()=='94e7e4180f23253cfac4af42e9c4886a523e07ed7e35b69f8ee81fe75e0bfddc','Source changed'
+          assert hashlib.sha256(raw).hexdigest()=='d1ca9263390759cdbbd656e74d620f3d62e4f8d2ef0a27ce775c1153a01c055f','Source changed'
           text=raw.decode()
           insert='\n'.join([
             ' '*20+'# CPU and rate counters require two actual samples; no fixed values.',
@@ -56,7 +56,7 @@ jobs:
           text=text.replace("                    page.screenshot(path=str(evidence / 'overview-light.png'), full_page=True)",insert)
           text=text.replace("                    assert page.locator('.header-right .status-dot.good').count() == 0", "                    assert page.locator('.header-right .status-dot.good').count() == 0\n                    assert page.locator('.el-table .el-tag--success').count() == 0\n                    assert page.get_by_text('状态未知', exact=True).count() >= 2")
           text=text.replace("'light/dark themes', 'mobile render', 'server stop changes status to unreachable',", "'live CPU samples', 'light/dark themes', 'mobile render', 'server stop changes status to unreachable',\n                              'stale component badges become unknown',")
-          assert hashlib.sha256(text.encode()).hexdigest()=='4764fae7f69f283b23f26b071407f1a2f1a42571c95680af6c97690a529c28fc','Unexpected browser test content'
+          assert hashlib.sha256(text.encode()).hexdigest()=='06212a4e52777dc3df8d41437bb8793ca3442ba95c95faeb177c0a81bde4c0e2','Unexpected browser test content'
           p.write_text(text)
           subprocess.run(['git','add','--','apps/admin/src/App.vue','scripts/release/smoke-admin.py'],check=True)
           subprocess.run(['git','rm','--','.github/workflows/verify-live-status.yml'],check=True)
