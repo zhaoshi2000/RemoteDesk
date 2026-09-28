@@ -1,0 +1,34 @@
+name: Rust-Quinn
+on:
+  push:
+    paths: ['Cargo.toml', 'Cargo.lock', 'crates/**', '.github/workflows/rust.yml']
+  pull_request:
+    paths: ['Cargo.toml', 'Cargo.lock', 'crates/**', '.github/workflows/rust.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        run: rustup toolchain install stable --profile minimal
+      - run: rustup default stable
+      - run: cargo generate-lockfile
+      - run: cargo test --workspace --all-targets -- --nocapture
+      - run: cargo build --workspace --release
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: quinn-${{ runner.os }}
+          path: |
+            Cargo.lock
+            target/release/remote_quic.dll
+            target/release/remote_quic.lib
+            target/release/libremote_quic.so
+            target/release/libremote_quic.a

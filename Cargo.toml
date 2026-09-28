@@ -1,0 +1,9 @@
+[workspace]
+members = ["crates/remote-quic"]
+resolver = "2"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = "debuginfo"
