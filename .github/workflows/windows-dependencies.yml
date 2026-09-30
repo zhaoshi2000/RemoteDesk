@@ -1,0 +1,38 @@
+name: Prepare Windows release dependencies
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/windows-dependencies.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  dependencies:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache/restore@v4
+        id: deps
+        with:
+          path: ~/AppData/Local/vcpkg/archives
+          key: rd-vcpkg-release-x64-v1-${{ hashFiles('vcpkg.json') }}
+      - name: Build release-only codec libraries
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $Triplets=Join-Path $env:RUNNER_TEMP 'rd-triplets'
+          New-Item -ItemType Directory -Force $Triplets | Out-Null
+          @'
+          set(VCPKG_TARGET_ARCHITECTURE x64)
+          set(VCPKG_CRT_LINKAGE dynamic)
+          set(VCPKG_LIBRARY_LINKAGE dynamic)
+          set(VCPKG_BUILD_TYPE release)
+          '@ | Set-Content "$Triplets/x64-windows.cmake" -Encoding utf8
+          & "$env:VCPKG_INSTALLATION_ROOT/vcpkg.exe" install --triplet=x64-windows "--overlay-triplets=$Triplets"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - uses: actions/cache/save@v4
+        if: always() && steps.deps.outputs.cache-hit != 'true'
+        with:
+          path: ~/AppData/Local/vcpkg/archives
+          key: rd-vcpkg-release-x64-v1-${{ hashFiles('vcpkg.json') }}
