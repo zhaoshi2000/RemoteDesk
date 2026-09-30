@@ -4,7 +4,7 @@ on:
   push:
     tags: ['v*']
     branches: [main]
-    paths: ['apps/**', 'internal/**', 'native/**', 'crates/**', 'scripts/**', 'installer/**', '.github/workflows/release.yml']
+    paths: ['cmd/**', 'cmake/**', 'apps/**', 'internal/**', 'native/**', 'crates/**', 'scripts/**', 'installer/**', '.github/workflows/release.yml']
 permissions:
   contents: read
 concurrency:
@@ -12,6 +12,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   server:
+    if: "github.event.head_commit.message != 'chore: stage verified UI source'"
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -37,6 +38,7 @@ jobs:
           path: release/RemoteDesk-Server-linux-amd64.tar.gz
           if-no-files-found: error
   client:
+    if: "github.event.head_commit.message != 'chore: stage verified UI source'"
     runs-on: windows-latest
     timeout-minutes: 90
     steps:
@@ -60,13 +62,38 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           "$env:RUNNER_TEMP/Qt/6.8.3/msvc2022_64/bin" | Out-File -FilePath $env:GITHUB_PATH -Append
           "CMAKE_PREFIX_PATH=$env:RUNNER_TEMP/Qt/6.8.3/msvc2022_64" | Out-File -FilePath $env:GITHUB_ENV -Append
+      - uses: actions/cache/restore@v4
+        id: native-cache
+        with:
+          path: ~/AppData/Local/vcpkg/archives
+          key: rd-vcpkg-release-x64-v1-${{ hashFiles('vcpkg.json') }}
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: rd-rust-ui-${{ runner.os }}-${{ hashFiles('Cargo.toml', 'crates/**/Cargo.toml', 'crates/**/src/**') }}
+          restore-keys: rd-rust-ui-${{ runner.os }}-
       - name: Build integrated client installer
         shell: pwsh
         run: ./scripts/build-full-windows.ps1 -Installer
+      - uses: actions/cache/save@v4
+        if: always() && steps.native-cache.outputs.cache-hit != 'true'
+        with:
+          path: ~/AppData/Local/vcpkg/archives
+          key: rd-vcpkg-release-x64-v1-${{ hashFiles('vcpkg.json') }}
+      - name: Include installation verification inside the client artifact
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release/verification | Out-Null
+          Get-ChildItem build/client-package -Directory | ForEach-Object { Copy-Item "$($_.FullName)/docs/client-ui-verification/*" release/verification -Force }
       - uses: actions/upload-artifact@v4
         with:
           name: RemoteDesk-Client
-          path: release/RemoteDeskSetup.exe
+          path: |
+            release/RemoteDeskSetup.exe
+            release/verification/
           if-no-files-found: error
   publish:
     needs: [server, client]
