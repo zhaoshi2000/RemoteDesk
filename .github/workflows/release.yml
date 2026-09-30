@@ -58,7 +58,7 @@ jobs:
         run: |
           python -m pip install aqtinstall==3.3.0
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          python -m aqt install-qt windows desktop 6.8.3 win64_msvc2022_64 --outputdir "$env:RUNNER_TEMP/Qt" --modules qtwebengine qtwebchannel qtpositioning
+          python -m aqt install-qt windows desktop 6.8.3 win64_msvc2022_64 --outputdir "$env:RUNNER_TEMP/Qt" --modules qtwebengine qtwebchannel qtpositioning qtserialport
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           "$env:RUNNER_TEMP/Qt/6.8.3/msvc2022_64/bin" | Out-File -FilePath $env:GITHUB_PATH -Append
           "CMAKE_PREFIX_PATH=$env:RUNNER_TEMP/Qt/6.8.3/msvc2022_64" | Out-File -FilePath $env:GITHUB_ENV -Append
@@ -66,8 +66,9 @@ jobs:
         id: native-cache
         with:
           path: ~/AppData/Local/vcpkg/archives
-          key: rd-vcpkg-release-x64-v1-${{ hashFiles('vcpkg.json') }}
-      - uses: actions/cache@v4
+          key: rd-vcpkg-release-x64-v2-${{ hashFiles('vcpkg.json', 'cmake/triplets/*.cmake') }}
+      - uses: actions/cache/restore@v4
+        id: rust-cache
         with:
           path: |
             ~/.cargo/registry
@@ -82,7 +83,15 @@ jobs:
         if: always() && steps.native-cache.outputs.cache-hit != 'true'
         with:
           path: ~/AppData/Local/vcpkg/archives
-          key: rd-vcpkg-release-x64-v1-${{ hashFiles('vcpkg.json') }}
+          key: rd-vcpkg-release-x64-v2-${{ hashFiles('vcpkg.json', 'cmake/triplets/*.cmake') }}
+      - uses: actions/cache/save@v4
+        if: always() && steps.rust-cache.outputs.cache-hit != 'true'
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: rd-rust-ui-${{ runner.os }}-${{ hashFiles('Cargo.toml', 'crates/**/Cargo.toml', 'crates/**/src/**') }}
       - name: Include installation verification inside the client artifact
         shell: pwsh
         run: |

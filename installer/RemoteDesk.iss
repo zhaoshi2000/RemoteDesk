@@ -37,6 +37,7 @@ function PrepareToInstall(var NeedsRestart: Boolean): String;
 var ResultCode: Integer;
 begin
  Result := '';
+ ResultCode := -1;
  ExtractTemporaryFile('vc_redist.x64.exe');
  if not Exec(ExpandConstant('{tmp}\vc_redist.x64.exe'), '/install /quiet /norestart', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
   Result := 'Cannot start the Microsoft Visual C++ runtime installer.'
@@ -44,9 +45,9 @@ begin
   Result := 'Microsoft Visual C++ runtime installation failed. Code: ' + IntToStr(ResultCode);
  RuntimeRestart := ResultCode = 3010;
 end;
-function NeedRestart(): Boolean;
+function NeedRestart: Boolean;
 begin
  Result := RuntimeRestart;
 end;
-; The installer never embeds credentials or overwrites private user identities.
-; OpenSSH remains optional, as Windows optional-component installation requires a working source.
+// The installer never embeds credentials or overwrites private user identities.
+// OpenSSH remains optional, as Windows optional-component installation requires a working source.

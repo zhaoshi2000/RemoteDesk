@@ -98,6 +98,12 @@ def main() -> None:
                     page.get_by_role('button',name='详情',exact=True).click()
                     expect(page.get_by_text('设备详细信息',exact=True)).to_be_visible()
                     expect(page.get_by_text('0.4.0-preview',exact=True).last).to_be_visible()
+                    page.wait_for_function("""() => {
+                        const e=document.querySelector('.el-drawer');
+                        if(!e) return false; const r=e.getBoundingClientRect();
+                        return r.x>=0 && r.right<=window.innerWidth+1;
+                    }""")
+                    page.wait_for_timeout(400)
                     page.screenshot(path=str(evidence/'device-details.png'),full_page=True)
                     page.locator('.el-drawer__close-btn').click()
                     expect(page.locator('.el-overlay').last).not_to_be_visible()
