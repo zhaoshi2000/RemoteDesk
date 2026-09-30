@@ -99,4 +99,6 @@ int run(MediaConfig cfg){
  return 0;
 }
 }
-int main(int argc,char** argv){try{if(argc!=2||std::string(argv[1])!="--ipc")throw std::runtime_error("launch through remote-agent desktop or the authenticated host; standalone key arguments are prohibited");_setmode(_fileno(stdin),_O_BINARY);return run(MediaConfig::read(std::cin));}catch(const std::exception& e){std::cerr<<"native media error: "<<e.what()<<std::endl;return 1;}}
+int main(int argc,char** argv){try{if(argc==2&&std::string(argv[1])=="--capabilities"){
+ std::cout<<"{\"transport\":\"quinn\",\"encoder_modules\":[";bool first=true;for(const auto* name:{"h264_nvenc","h264_qsv","h264_amf","libopenh264"}){if(avcodec_find_encoder_by_name(name)){if(!first)std::cout<<",";std::cout<<"\""<<name<<"\"";first=false;}}std::cout<<"],\"h264_decoder\":"<<(avcodec_find_decoder(AV_CODEC_ID_H264)?"true":"false")<<",\"gpu_runtime_test\":\"not performed\"}"<<std::endl;return avcodec_find_decoder(AV_CODEC_ID_H264)?0:2;}
+if(argc!=2||std::string(argv[1])!="--ipc")throw std::runtime_error("launch through remote-agent desktop or the authenticated host; standalone key arguments are prohibited");_setmode(_fileno(stdin),_O_BINARY);return run(MediaConfig::read(std::cin));}catch(const std::exception& e){std::cerr<<"native media error: "<<e.what()<<std::endl;return 1;}}

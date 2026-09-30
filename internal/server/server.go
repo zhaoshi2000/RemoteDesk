@@ -75,6 +75,7 @@ type Server struct {
 	relayTX       atomic.Uint64
 	relayPackets  atomic.Uint64
 	components    map[string]ServiceStatus
+	telemetry     map[string]DeviceTelemetry
 }
 
 func New(cfg Config, st store.Registry) (*Server, error) {
@@ -89,6 +90,7 @@ func NewWithBackends(cfg Config, st store.Registry, presence Presence, state Sta
 	s := &Server{cfg: cfg, store: st, online: map[string]live{}, replay: map[string]time.Time{}, events: map[string][]protocol.Event{}, sessions: map[string]*session{}, rates: map[string]bucket{}, ctx: ctx, cancel: cancel, seq: uint64(time.Now().UnixNano()), static: http.FileServer(http.FS(sub))}
 	s.presence = presence
 	s.loginSessions = map[string]loginSession{}
+	s.telemetry = map[string]DeviceTelemetry{}
 	if state == nil && cfg.Store != "" {
 		state = FileState{Path: filepath.Join(filepath.Dir(cfg.Store), "management.json")}
 	}
@@ -142,6 +144,11 @@ func (s *Server) maintenance() {
 			return
 		case now := <-t.C:
 			s.mu.Lock()
+			for k, v := range s.telemetry {
+				if now.Sub(v.ReceivedAt) > time.Hour {
+					delete(s.telemetry, k)
+				}
+			}
 			for k, v := range s.replay {
 				if now.After(v) {
 					delete(s.replay, k)
@@ -265,6 +272,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		jsonResponse(w, 200, d)
+	case r.Method == "POST" && r.URL.Path == "/v1/telemetry":
+		s.acceptTelemetry(w, r, id, body)
 	case r.Method == "POST" && r.URL.Path == "/v1/heartbeat":
 		var c protocol.CandidateSet
 		if decode(body, &c) != nil || !c.Verify(pub) {

@@ -16,6 +16,7 @@ import (
 )
 
 type Config struct {
+	DisableTelemetry bool   `json:"disable_telemetry,omitempty"`
 	Server           string `json:"server"`
 	CAFile           string `json:"ca_file"`
 	Name             string `json:"name"`

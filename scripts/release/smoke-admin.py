@@ -44,6 +44,7 @@ def main() -> None:
         with (work / 'server.log').open('w') as log:
             server = subprocess.Popen([str(binary), 'run', '--config', str(state / 'server.json')],
                                       stdout=log, stderr=log)
+            agent = None
             try:
                 for attempt in range(100):
                     if server.poll() is not None:
@@ -56,6 +57,13 @@ def main() -> None:
                         time.sleep(0.1)
                 else:
                     raise RuntimeError('test server did not become ready')
+                # Use a real signed Agent to create a temporary device and report actual hardware/resources.
+                agent_binary = work / 'test-agent'
+                subprocess.run(['go','build','-trimpath','-o',str(agent_binary),'./cmd/remote-agent'],cwd=ROOT,check=True)
+                agent_state = work / 'test-device'
+                subprocess.run([str(agent_binary),'init','--state',str(agent_state),'--server',url,'--ca',str(state/'server.crt'),'--stun',f'127.0.0.1:{udp_port}','--name','UI验收设备（临时数据）'],check=True,stdout=subprocess.DEVNULL)
+                subprocess.run([str(agent_binary),'register','--state',str(agent_state),'--token-file',str(state/'enrollment.token')],check=True,stdout=subprocess.DEVNULL)
+                agent = subprocess.Popen([str(agent_binary),'run','--state',str(agent_state)],stdout=log,stderr=log)
                 token = (state / 'admin.token').read_text().strip()
                 with sync_playwright() as playwright:
                     browser = playwright.chromium.launch(headless=True)
@@ -73,6 +81,26 @@ def main() -> None:
                         page.locator(f'nav button[title="{name}"]').click()
                         expect(page.locator('h1')).to_have_text(name)
                         page.wait_for_timeout(150)
+                    for attempt in range(40):
+                        data=context.request.get(url+'/v1/admin/overview').json()
+                        reported=[d for d in data['managed_devices'] if d.get('telemetry')]
+                        if reported:
+                            break
+                        page.wait_for_timeout(500)
+                    else:
+                        raise AssertionError('real Agent did not send telemetry')
+                    assert reported[0]['telemetry']['report']['agent_version']=='0.4.0-preview'
+                    assert reported[0]['telemetry']['observed_ip']=='127.0.0.1'
+                    page.locator('nav button[title="设备管理"]').click()
+                    page.get_by_role('button',name='刷新',exact=True).click()
+                    expect(page.get_by_text('UI验收设备（临时数据）',exact=True)).to_be_visible()
+                    page.screenshot(path=str(evidence/'device-inventory.png'),full_page=True)
+                    page.get_by_role('button',name='详情',exact=True).click()
+                    expect(page.get_by_text('设备详细信息',exact=True)).to_be_visible()
+                    expect(page.get_by_text('0.4.0-preview',exact=True).last).to_be_visible()
+                    page.screenshot(path=str(evidence/'device-details.png'),full_page=True)
+                    page.locator('.el-drawer__close-btn').click()
+                    expect(page.locator('.el-overlay').last).not_to_be_visible()
                     page.locator('nav button[title="系统设置"]').click()
                     page.locator('.settings-card input').first.fill('本地验收节点（非生产数据）')
                     page.get_by_role('button', name='保存配置', exact=True).click()
@@ -113,12 +141,19 @@ def main() -> None:
                 (evidence / 'RESULT.json').write_text(json.dumps({
                     'result':'passed', 'scope':'isolated real server binary + real Chromium',
                     'checks':['login', 'ten navigation pages', 'live server status', 'settings persistence',
-                              'live CPU samples', 'light/dark themes', 'mobile render', 'server stop changes status to unreachable',
+                              'signed real Agent telemetry', 'device inventory and detail drawer', 'live CPU samples', 'light/dark themes', 'mobile render', 'server stop changes status to unreachable',
                               'stale component badges become unknown',
                               'no uncaught page errors'],
                     'not_tested':['public network reachability', 'Windows remote desktop GPU performance'],
                 }, ensure_ascii=False, indent=2), encoding='utf-8')
             finally:
+                if agent is not None and agent.poll() is None:
+                    agent.terminate()
+                    try:
+                        agent.wait(timeout=15)
+                    except subprocess.TimeoutExpired:
+                        agent.kill()
+                        agent.wait()
                 if server.poll() is None:
                     server.terminate()
                     try:

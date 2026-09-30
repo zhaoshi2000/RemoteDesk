@@ -108,6 +108,7 @@ func run(parent context.Context, dir string, service bool) error {
 	r.launch(r.acceptTCP)
 	r.launch(r.events)
 	r.launch(r.periodic)
+	r.launch(func() { r.reportTelemetry(service) })
 	slog.Info("agent online", "device_id", id.ID, "tcp", tcp.Addr().String(), "udp", udp.LocalAddr().String())
 	<-ctx.Done()
 	tcp.Close()

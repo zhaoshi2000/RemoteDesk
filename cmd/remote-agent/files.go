@@ -90,6 +90,7 @@ func configureHost(args []string) error {
 	desktop := f.Bool("desktop", false, "explicitly enable desktop hosting")
 	engine := f.String("engine", "", "absolute path to remote-media.exe")
 	receive := f.String("receive-dir", "", "private shared file root; empty disables file sharing")
+	telemetryEnabled := f.Bool("telemetry", true, "report hardware/resource metadata to the configured coordinator")
 	if e := f.Parse(args); e != nil {
 		return e
 	}
@@ -112,6 +113,7 @@ func configureHost(args []string) error {
 		cfg.MediaExecutable = p
 	}
 	cfg.DesktopEnabled = *desktop
+	cfg.DisableTelemetry = !*telemetryEnabled
 	cfg.ReceiveDirectory = ""
 	if *receive != "" {
 		p, e := filepath.Abs(*receive)

@@ -3,11 +3,16 @@
 #include <QProcess>
 #include <QJsonDocument>
 #include <functional>
-class QLineEdit;class QLabel;class QPushButton;class QTableWidget;class QPlainTextEdit;class QTabWidget;class QCheckBox;class QComboBox;class QSpinBox;class QProgressBar;
+class QListWidget;class QLineEdit;class QLabel;class QPushButton;class QTableWidget;class QPlainTextEdit;class QTabWidget;class QCheckBox;class QComboBox;class QSpinBox;class QProgressBar;
 class MainWindow final:public QMainWindow {
  Q_OBJECT
  QLineEdit *state_,*peer_,*remoteDir_;
  QLabel *identity_,*hostStatus_,*videoStats_,*fileStats_;
+ QLabel *deviceID_,*serverStatus_,*peerCount_,*hardwareSummary_;
+ QTableWidget* info_;
+ QListWidget* navigation_;
+ QString localID_,serverURL_;
+ bool diagnosticBusy_=false;
  QTableWidget *devices_,*files_;
  QPlainTextEdit* log_;
  QTabWidget* tabs_;
@@ -24,6 +29,7 @@ class MainWindow final:public QMainWindow {
  QString target()const;
  void appendLog(const QString& text);
  void command(QStringList args,std::function<void(bool,QByteArray)> done={});
+ void diagnostics(bool hardware=false);void openAdmin();void savePreferences();
  void identity();void onboarding();void refreshPeers();void trustPeer();void grantPeer();void configureHost();void toggleHost();
  void connectDesktop();void stopDesktop();void ssh();void listFiles();void upload(bool folder);void download();void fileOperation(const QString& op,const QString& local,const QString& remote,bool overwrite);
  void parseMedia(const QByteArray& data);void cancelFile();
@@ -31,4 +37,5 @@ protected:
  void closeEvent(QCloseEvent*)override;
 public:
  MainWindow();~MainWindow()override;
+ bool uiSelfTest(const QString& directory);
 };

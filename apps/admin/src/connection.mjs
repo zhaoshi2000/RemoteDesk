@@ -21,3 +21,13 @@ export function formatBytes(value) {
   let i = 0; while (value >= 1024 && i < units.length - 1) { value /= 1024; i++ }
   return `${value.toFixed(i ? 1 : 0)} ${units[i]}`
 }
+
+/** Receipt time belongs to the server. A reported clock is never a freshness authority. */
+export function telemetryState(device, serverTime, healthy = true) {
+ if (!healthy) return 'unknown'
+ if (!device?.telemetry) return 'missing'
+ if (!device.online) return 'offline'
+ const received=Date.parse(device.telemetry.received_at), now=Date.parse(serverTime)
+ if (!Number.isFinite(received)||!Number.isFinite(now)||received>now+5000) return 'unknown'
+ return now-received>45000?'stale':'fresh'
+}

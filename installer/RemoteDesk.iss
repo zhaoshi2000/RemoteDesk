@@ -1,5 +1,5 @@
-; Full user-session client package. No default unattended password is installed.
-#define MyAppVersion "0.3.0"
+﻿; Full user-session client package. No default unattended password is installed.
+#define MyAppVersion "0.4.0"
 #ifndef BundleDir
 #define BundleDir "..\dist\windows-amd64"
 #endif
@@ -15,12 +15,13 @@ ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0.17763
 OutputDir=..\release
 OutputBaseFilename=RemoteDeskSetup
-Compression=lzma2
+Compression=lzma2/fast
 SolidCompression=yes
 WizardStyle=modern
 UninstallDisplayIcon={app}\RemoteDesk.exe
 [Files]
-Source: "{#BundleDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#BundleDir}\*"; DestDir: "{app}"; Excludes: "redist\*"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#BundleDir}\redist\vc_redist.x64.exe"; Flags: dontcopy
 [Tasks]
 Name: "desktopicon"; Description: "创建桌面快捷方式"; Flags: unchecked
 Name: "openssh"; Description: "检测并安装本机 OpenSSH Server（仅回环监听；不改写已有非回环配置）"
@@ -31,10 +32,21 @@ Name: "{autodesktop}\RemoteDesk"; Filename: "{app}\RemoteDesk.exe"; Tasks: deskt
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -File ""{app}\scripts\Install-OpenSSH.ps1"""; Tasks: openssh; Flags: waituntilterminated; StatusMsg: "检测 Windows OpenSSH；本机回环模式"
 Filename: "{app}\RemoteDesk.exe"; Description: "打开 RemoteDesk 并初始化设备"; Flags: nowait postinstall skipifsilent runasoriginaluser
 [Code]
-procedure CurStepChanged(CurStep: TSetupStep);
+var RuntimeRestart: Boolean;
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var ResultCode: Integer;
 begin
- if CurStep=ssPostInstall then
-  MsgBox('设备密钥将在当前用户首次初始化时生成，不含公共默认密码。完整桌面需要交互用户会话和支持硬件编解码的 GPU；VC++ 2015-2022 x64 运行库须已安装。已有 SSH 配置若非回环限定，脚本会拒绝修改。',mbInformation,MB_OK);
+ Result := '';
+ ExtractTemporaryFile('vc_redist.x64.exe');
+ if not Exec(ExpandConstant('{tmp}\vc_redist.x64.exe'), '/install /quiet /norestart', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+  Result := 'Cannot start the Microsoft Visual C++ runtime installer.'
+ else if (ResultCode <> 0) and (ResultCode <> 3010) and (ResultCode <> 1638) then
+  Result := 'Microsoft Visual C++ runtime installation failed. Code: ' + IntToStr(ResultCode);
+ RuntimeRestart := ResultCode = 3010;
 end;
-; User identities and configuration live outside Program Files and are preserved at uninstall.
-; A SYSTEM identity-only service can be installed explicitly with the supplied service script.
+function NeedRestart(): Boolean;
+begin
+ Result := RuntimeRestart;
+end;
+; The installer never embeds credentials or overwrites private user identities.
+; OpenSSH remains optional, as Windows optional-component installation requires a working source.

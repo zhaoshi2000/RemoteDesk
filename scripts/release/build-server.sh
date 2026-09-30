@@ -26,6 +26,7 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags='-s -w' -o "$P
 cp scripts/release/install-server.sh "$PACKAGE/install.sh"
 cp deploy/remotedesk-server.service "$PACKAGE/remotedesk-server.service"
 cp docs/TWO_PACKAGES.md "$PACKAGE/docs/DEPLOYMENT.md"
+cp docs/V0.4-DELIVERY.md "$PACKAGE/docs/V0.4-DELIVERY.md"
 cp apps/admin/package-lock.json "$PACKAGE/docs/admin-package-lock.json"
 cp licenses/Go-LICENSE.txt "$PACKAGE/licenses/Go-LICENSE.txt"
 cp -a licenses/frontend/. "$PACKAGE/licenses/"
@@ -36,7 +37,7 @@ for entry in vue element-plus '@element-plus/icons-vue'; do
   fi
  done
 done
-printf 'version=0.3.0\nbuild_commit=%s\n' "$(git rev-parse HEAD 2>/dev/null || printf 'local-source')" > "$PACKAGE/BUILD-INFO.txt"
+printf 'version=0.4.0-preview\nbuild_commit=%s\n' "$(git rev-parse HEAD 2>/dev/null || printf 'local-source')" > "$PACKAGE/BUILD-INFO.txt"
 go version >> "$PACKAGE/BUILD-INFO.txt"
 chmod 755 "$PACKAGE/bin/remote-server" "$PACKAGE/install.sh"
 (cd "$PACKAGE" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)

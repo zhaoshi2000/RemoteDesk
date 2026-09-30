@@ -38,6 +38,9 @@ func execute() error {
 		return errors.New("usage: remote-agent init|register|identity|trust|grant|untrust|configure-host|peers|run|desktop|file|probe|tunnel|ssh|service|version")
 	}
 	command := os.Args[1]
+	if command == "diagnostics" {
+		return diagnostics(os.Args[2:])
+	}
 	if command == "configure-host" {
 		return configureHost(os.Args[2:])
 	}
@@ -51,7 +54,7 @@ func execute() error {
 	}
 
 	if command == "version" {
-		fmt.Println("RemoteDesk agent 0.2.0-engineering; authenticated media broker + SSH")
+		fmt.Println("RemoteDesk agent 0.4.0-preview; authenticated media broker + SSH + scoped telemetry")
 		return nil
 	}
 	f := flag.NewFlagSet(command, flag.ContinueOnError)

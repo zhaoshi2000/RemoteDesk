@@ -1,4 +1,4 @@
-# RemoteDesk — 两个产品包
+# RemoteDesk 0.4 — 图形客户端 + 集成管理服务端
 
 发布面只提供 **Linux 服务端部署包** 和 **Windows 客户端安装包**。后台使用 Vue 3 / Element Plus Admin，打包嵌入服务端，不单独安装前端。
 
@@ -18,3 +18,6 @@
 Linux 运行 `bash scripts/release/build-server.sh`。Windows 运行 `./scripts/build-full-windows.ps1 -Installer`（所需 SDK 见部署手册）。GitHub Actions 的 **Two product packages** 工作流只上传两个产品产物；常规 Rust CI 不上传动态库或测试包。打 v* 标签只会在两端都成功后创建含两个产品文件的预发布。
 
 源码实现、编译、实际运行、GPU 性能验收是不同状态。当前不能仅凭 CI 编译宣称两台 Windows 远控达到 1080p60；无人值守安全桌面和更新安装回滚也不在本次后台打包改造验收范围。原有工程记录保留作为历史，不应把历史计划当作已完成。
+
+
+0.4 新增：Windows 原生 Qt 连接工作台、本机硬件诊断、签名设备状态上报、管理后台设备详情/资源趋势、微软签名 VC++ 运行库打包和安装后 GUI 启动检查。具体字段、启用方式和验证边界见 [0.4 交付说明](docs/V0.4-DELIVERY.md)。

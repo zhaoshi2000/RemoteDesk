@@ -11,7 +11,7 @@ import (
 	"remotedesk.local/remotedesk/internal/protocol"
 )
 
-const ServerVersion = "0.3.0"
+const ServerVersion = "0.4.0-preview"
 
 type ServiceStatus struct {
 	Name   string `json:"name"`
@@ -21,7 +21,9 @@ type ServiceStatus struct {
 }
 type AdminDevice struct {
 	protocol.Peer
-	Meta DeviceMeta `json:"meta"`
+	Meta        DeviceMeta       `json:"meta"`
+	Telemetry   *DeviceTelemetry `json:"telemetry,omitempty"`
+	Fingerprint string           `json:"fingerprint"`
 }
 
 func consolePath(p string) bool {
@@ -52,6 +54,21 @@ func (s *Server) consoleAPI(w http.ResponseWriter, r *http.Request, actor string
 			return
 		}
 		s.adminMutation(w, actor, "settings.update", "server", func(d *adminData) error { d.Settings = req; return nil })
+		return
+	case strings.HasPrefix(path, "/v1/admin/devices/") && r.Method == "GET":
+		id := strings.TrimPrefix(path, "/v1/admin/devices/")
+		p, ok := s.peer(id)
+		if !ok {
+			fail(w, 404, "unknown device")
+			return
+		}
+		if p.LastSeen < 0 {
+			p.LastSeen = 0
+		}
+		meta := s.console.snapshot().Devices[id]
+		meta.Disabled = meta.Disabled || p.Device.Disabled
+		pub, _ := protocol.ParsePublic(p.Device.PublicKey)
+		jsonResponse(w, 200, AdminDevice{Peer: p, Meta: meta, Telemetry: s.telemetrySnapshot(id, true), Fingerprint: protocol.Fingerprint(pub)})
 		return
 	case strings.HasPrefix(path, "/v1/admin/devices/") && r.Method == "PATCH":
 		id := strings.TrimPrefix(path, "/v1/admin/devices/")
@@ -151,7 +168,8 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request) {
 		if p.LastSeen < 0 {
 			p.LastSeen = 0
 		}
-		devices = append(devices, AdminDevice{p, meta})
+		pub, _ := protocol.ParsePublic(d.PublicKey)
+		devices = append(devices, AdminDevice{Peer: p, Meta: meta, Telemetry: s.telemetrySnapshot(d.ID, false), Fingerprint: protocol.Fingerprint(pub)})
 		legacy = append(legacy, p)
 	}
 	s.mu.Lock()
@@ -186,7 +204,8 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, 200, map[string]any{
 		"server_time": now, "version": ServerVersion, "server": map[string]any{"name": data.Settings.NodeName, "hostname": monitor.Hostname(), "status": status, "heartbeat_at": sample.At, "started_at": s.started, "uptime_seconds": int64(now.Sub(s.started).Seconds()), "os": runtime.GOOS, "arch": runtime.GOARCH, "go_version": runtime.Version(), "cpu_cores": runtime.NumCPU(), "components": components, "sample": sample, "total_requests": s.requests.Load(), "store": storage, "external_reachability": "not externally probed"},
 		"devices": legacy, "managed_devices": devices, "online": online, "disabled": blocked, "sessions": ss, "active_ssh_relay": activeSSH, "media_relay": relay, "active_direct_p2p": nil, "notice": data.Settings.Notice,
-		"limitations": []string{"Direct P2P session count/traffic is not reported by this Agent version", "Node metrics show this running server, not an external connectivity guarantee", "Device blocking affects the coordinator, not existing direct peer authorization", "GPU remote desktop performance remains unverified"},
+		"telemetry_policy": map[string]any{"interval_seconds": 15, "freshness_seconds": 45, "history_samples": 40, "expiry_seconds": 3600, "persistent": false, "source": "authenticated device reports, not hardware attestation", "capacity": maxTelemetryDevices},
+		"limitations":      []string{"Direct P2P session count/traffic is not reported by this Agent version", "Node metrics show this running server, not an external connectivity guarantee", "Device blocking affects the coordinator, not existing direct peer authorization", "GPU remote desktop performance remains unverified"},
 	})
 }
 func (s *Server) SetComponent(name, state, listen, detail string) {
